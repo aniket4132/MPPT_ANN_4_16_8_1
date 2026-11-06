@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solaris MPPT | 50W Panel, Boost Converter & 6S Battery Simulator</title>
+  <meta name="description" content="Interactive 50W Solar Panel MPPT Simulator. Features Boost converter impedance matching (15Ω/30Ω resistor & 6S Li-Ion battery pack), 4-16-8-1 ANN, and sun/cloud physics.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- KaTeX for Scientific Math Typesetting -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+  <!-- Top Navigation Header -->
+  <header class="app-header" id="app-header">
+    <div class="header-left">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="7" fill="url(#sun-grad)"/>
+            <path d="M16 2V6M16 26V30M2 16H6M26 16H30M6.1 6.1L8.9 8.9M23.1 23.1L25.9 25.9M6.1 25.9L8.9 23.1M23.1 8.9L25.9 6.1" stroke="#FFB020" stroke-width="2.5" stroke-linecap="round"/>
+            <defs>
+              <linearGradient id="sun-grad" x1="9" y1="9" x2="23" y2="23" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#FFF275"/>
+                <stop offset="1" stop-color="#FF8A00"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1 class="brand-title">SOLARIS <span>MPPT</span></h1>
+          <p class="brand-subtitle">50W Solar Panel &bull; Boost Converter &bull; 6S Battery &bull; 4-16-8-1 ANN</p>
+        </div>
+      </div>
+      <div class="model-badge" id="model-status-badge">
+        <span class="pulse-dot"></span>
+        <span class="badge-text">Target: <strong><i>V</i><sub>mpp</sub> = 18.0V &bull; 50W (<i>R</i><sub>mpp</sub> = 6.47 &Omega;)</strong></span>
+      </div>
+    </div>
+
+    <!-- Quick Presets -->
+    <div class="preset-toolbar" id="preset-toolbar">
+      <span class="preset-label">Presets:</span>
+      <button class="preset-btn active" id="btn-preset-noon" data-preset="noon" title="Clear Midday Sun (1000 W/m²)">☀️ 1000 W/m² (Noon)</button>
+      <button class="preset-btn" id="btn-preset-morning" data-preset="morning" title="Morning / Late Afternoon (700 W/m²)">🌤️ 700 W/m²</button>
+      <button class="preset-btn" id="btn-preset-scattered" data-preset="scattered" title="Scattered Cloud (500 W/m² -> 1.39A)">⛅ 500 W/m²</button>
+      <button class="preset-btn" id="btn-preset-overcast" data-preset="overcast" title="Heavy Cloud (200 W/m²)">☁️ 200 W/m²</button>
+      <button class="preset-btn" id="btn-preset-sunset" data-preset="sunset" title="Golden Sunset (100 W/m²)">🌅 100 W/m²</button>
+    </div>
+
+    <!-- Algorithm Toggle & Time-Lapse -->
+    <div class="header-right">
+      <div class="mode-toggle-group">
+        <span class="toggle-label">Controller:</span>
+        <div class="pill-toggle" id="algo-toggle-pill">
+          <button class="pill-btn active" id="algo-btn-ann" data-algo="ann">ANN (Instant)</button>
+          <button class="pill-btn" id="algo-btn-po" data-algo="po">P&amp;O (Perturb)</button>
+        </div>
+      </div>
+      <button class="timelapse-btn" id="timelapse-toggle" title="Auto Orbit Sun & Drift Clouds">
+        <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        <svg class="pause-icon hidden" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="4" width="4" height="16"/>
+          <rect x="14" y="4" width="4" height="16"/>
+        </svg>
+        <span>Time-Lapse</span>
+      </button>
+
+      <!-- ESP32 Hardware Bridge -->
+      <div class="esp32-bridge-wrapper">
+        <button class="esp32-bridge-btn" id="esp32-bridge-btn" title="Bridge Browser Simulation to Physical ESP32">
+          <span class="esp32-bridge-dot" id="esp32-bridge-dot"></span>
+          <span id="esp32-bridge-label">ESP32 Hardware</span>
+        </button>
+        <!-- Dropdown Popup -->
+        <div class="esp32-bridge-popover hidden" id="esp32-bridge-popover">
+          <div class="esp32-popover-header">
+            <strong>⚡ ESP32 Hardware Bridge</strong>
+            <span class="esp32-status-tag" id="esp32-status-tag">Disconnected</span>
+          </div>
+          <div class="esp32-popover-body">
+            <label for="esp32-ip-input" style="font-size:0.75rem; color:#94a3b8; display:block; margin-bottom:4px;">ESP32 IP Address / Host:</label>
+            <div class="esp32-input-row" style="display:flex; gap:6px; margin-bottom:8px;">
+              <input type="text" id="esp32-ip-input" value="192.168.4.1" placeholder="e.g. 192.168.4.1" style="flex:1; background:#0b0f19; border:1px solid #334155; border-radius:6px; color:#fff; padding:6px 10px; font-size:0.8rem; outline:none;">
+              <button class="btn-connect-esp32" id="btn-connect-esp32" style="background:#f59e0b; color:#000; border:none; padding:6px 12px; border-radius:6px; font-weight:600; font-size:0.8rem; cursor:pointer;">Connect</button>
+            </div>
+            <div class="esp32-live-sync-row" style="margin-bottom:10px;">
+              <label style="font-size:0.78rem; color:#cbd5e1; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="esp32-sync-toggle" checked> Stream Simulation to ESP32
+              </label>
+            </div>
+            <div class="esp32-telemetry-box" id="esp32-telemetry-box" style="background:rgba(0,0,0,0.3); border-radius:8px; padding:8px 10px; font-size:0.75rem; border:1px solid rgba(255,255,255,0.06); display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+              <div>PWM: <strong id="esp32-hw-pwm" style="color:#fff">-- / 1023</strong></div>
+              <div>Latency: <strong id="esp32-hw-lat" style="color:#38bdf8">-- µs</strong></div>
+              <div>Duty: <strong id="esp32-hw-duty" style="color:#f59e0b">--%</strong></div>
+              <div>Uptime: <strong id="esp32-hw-uptime" style="color:#10b981">--s</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid Dashboard -->
+  <main class="dashboard-grid">
+    <!-- Top-Left / Main Sky Interactive Stage -->
+    <section class="stage-card card" id="stage-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2 class="card-title">50W Solar Panel &amp; Interactive Atmosphere</h2>
+          <span class="card-hint">💡 Drag <strong>Sun</strong> (Irradiance) or <strong>Clouds</strong> (Shading) &bull; Panel: 18.0V / 2.78A at 1000 W/m²</span>
+        </div>
+        <div class="stage-hud" id="stage-hud">
+          <div class="hud-item"><span class="hud-label">Sun Elevation:</span> <strong id="hud-elevation">65.0°</strong></div>
+          <div class="hud-item"><span class="hud-label">Occlusion:</span> <strong id="hud-occlusion">0%</strong></div>
+          <div class="hud-item"><span class="hud-label">Beam Lux:</span> <strong id="hud-panel-lux" class="text-solar">100% (1000 W/m²)</strong></div>
+        </div>
+      </div>
+
+      <!-- Canvas / Stage Viewport -->
+      <div class="sky-viewport" id="sky-viewport">
+        <canvas id="sky-canvas"></canvas>
+
+        <!-- Floating Interactive Overlay Elements -->
+        <div class="interactive-guide" id="interactive-guide">
+          <div class="guide-chip"><span class="cursor-icon">👆</span> Drag Sun across sky</div>
+          <div class="guide-chip"><span class="cursor-icon">☁️</span> Drag Cloud between Sun &amp; Panel</div>
+        </div>
+
+        <!-- Shading ray warning banner -->
+        <div class="shading-alert hidden" id="shading-alert">
+          <span class="warning-icon">⚡</span>
+          <span>Cloud shading beam &mdash; Photocurrent <i>I</i><sub>ph</sub> dropping proportionally!</span>
+        </div>
+      </div>
+
+      <!-- Stage Sliders Cockpit -->
+      <div class="stage-controls-bar">
+        <div class="control-col">
+          <div class="slider-header">
+            <label for="slider-sun-angle">Sun Elevation (Irradiance <i>G</i>)</label>
+            <span class="slider-val" id="val-sun-angle">12:30 PM (65°)</span>
+          </div>
+          <input type="range" id="slider-sun-angle" min="5" max="85" value="65" step="0.5">
+          <div class="slider-ticks">
+            <span>Sunrise (06:00)</span>
+            <span>Solar Noon (12:00)</span>
+            <span>Sunset (18:00)</span>
+          </div>
+        </div>
+
+        <div class="control-col">
+          <div class="slider-header">
+            <label for="slider-cloud-density">Cloud Density / Thickness</label>
+            <span class="slider-val" id="val-cloud-density">40% (Medium)</span>
+          </div>
+          <input type="range" id="slider-cloud-density" min="0" max="100" value="40" step="1">
+          <div class="slider-ticks">
+            <span>Clear Sky (0%)</span>
+            <span>Cumulus / Cirrus</span>
+            <span>Overcast (100%)</span>
+          </div>
+        </div>
+
+        <div class="control-col">
+          <div class="slider-header">
+            <label for="slider-temperature">Ambient Temperature (<i>T</i>)</label>
+            <span class="slider-val" id="val-temperature">25.0 °C</span>
+          </div>
+          <input type="range" id="slider-temperature" min="14" max="60" value="25" step="0.5">
+          <div class="slider-ticks">
+            <span>14 °C (Cool)</span>
+            <span>25 °C (STC Benchmark)</span>
+            <span>60 °C (Hot)</span>
+          </div>
+        </div>
+
+        <div class="control-col buttons-col">
+          <button class="secondary-btn" id="btn-add-cloud" title="Add another cloud">+ Cloud</button>
+          <button class="secondary-btn" id="btn-reset-scene" title="Reset Sun and Clouds">Reset</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Top-Right: Telemetry Gauges & Boost Duty Output -->
+    <section class="telemetry-panel" id="telemetry-panel">
+      <!-- Optimal Duty Cycle Hero Card -->
+      <div class="hero-duty-card card" id="hero-duty-card">
+        <div class="duty-header">
+          <div class="duty-title-wrap">
+            <span class="sub-badge">BOOST CONVERTER PWM &bull; <span class="math-formula"><i>D</i> = 1 &minus; <i>V</i><sub>in</sub> / <i>V</i><sub>out</sub></span></span>
+            <h3 class="hero-card-title">Optimal Duty Cycle (<i>D</i>)</h3>
+          </div>
+          <div class="algo-indicator" id="algo-indicator-badge">
+            <span class="dot"></span>
+            <span class="label">ANN Model</span>
+          </div>
+        </div>
+
+        <div class="duty-main-readout">
+          <div class="duty-big-number" id="readout-duty">0.3430</div>
+          <div class="duty-percent-tag" id="readout-duty-pct">34.3%</div>
+          <div class="duty-tag-note" id="duty-load-ref">(Matches <i>R</i><sub>load</sub> = 15&Omega; &rarr; <i>R</i><sub>in</sub> = 6.47&Omega;)</div>
+        </div>
+
+        <!-- PWM Wave Visualization Canvas -->
+        <div class="pwm-preview-container">
+          <div class="pwm-label-row">
+            <span>PWM Gate Signal (<i>f</i> = 10 kHz &bull; From Notes)</span>
+            <span id="pwm-ratio-label">TON: 34.3% | TOFF: 65.7%</span>
+          </div>
+          <canvas id="pwm-canvas" width="340" height="40"></canvas>
+        </div>
+
+        <!-- Tracking Efficiency Bar -->
+        <div class="efficiency-row">
+          <div class="eff-labels">
+            <span>MPPT Tracking Efficiency &bull; Locking at 18.0V</span>
+            <strong id="readout-efficiency" class="text-green">99.8%</strong>
+          </div>
+          <div class="eff-bar-bg">
+            <div class="eff-bar-fill" id="eff-bar-fill" style="width: 99.8%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4-Sensor Input & Output Meters Grid -->
+      <div class="meters-grid">
+        <!-- Metric 1: Irradiance -->
+        <div class="meter-card card" id="meter-irradiance">
+          <div class="meter-top">
+            <div class="meter-icon solar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            </div>
+            <div class="meter-meta">
+              <span class="meter-name">Irradiance (G)</span>
+              <span class="meter-norm" id="norm-irr">ANN Norm: 1.000</span>
+            </div>
+          </div>
+          <div class="meter-val-row">
+            <span class="meter-num" id="readout-irradiance">1000</span>
+            <span class="meter-unit">W/m²</span>
+          </div>
+          <div class="meter-progress-track">
+            <div class="meter-progress-bar bg-solar" id="bar-irradiance" style="width: 100%;"></div>
+          </div>
+          <div class="meter-footer-note">Baseline: 1000 W/m² = 50W</div>
+        </div>
+
+        <!-- Metric 2: Temperature -->
+        <div class="meter-card card" id="meter-temperature">
+          <div class="meter-top">
+            <div class="meter-icon temp-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+              </svg>
+            </div>
+            <div class="meter-meta">
+              <span class="meter-name">Cell Temp (T)</span>
+              <span class="meter-norm" id="norm-temp">ANN Norm: 0.239</span>
+            </div>
+          </div>
+          <div class="meter-val-row">
+            <span class="meter-num" id="readout-temp">25.0</span>
+            <span class="meter-unit">°C</span>
+          </div>
+          <div class="meter-progress-track">
+            <div class="meter-progress-bar bg-temp" id="bar-temperature" style="width: 25%;"></div>
+          </div>
+          <div class="meter-footer-note">STC Reference = 25.0 °C</div>
+        </div>
+
+        <!-- Metric 3: PV Voltage -->
+        <div class="meter-card card" id="meter-voltage">
+          <div class="meter-top">
+            <div class="meter-icon volt-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </div>
+            <div class="meter-meta">
+              <span class="meter-name">PV Voltage (Vpv)</span>
+              <span class="meter-norm" id="norm-volt">ANN Norm: 0.888</span>
+            </div>
+          </div>
+          <div class="meter-val-row">
+            <span class="meter-num" id="readout-voltage">18.00</span>
+            <span class="meter-unit">V</span>
+          </div>
+          <div class="meter-progress-track">
+            <div class="meter-progress-bar bg-volt" id="bar-voltage" style="width: 83%;"></div>
+          </div>
+          <div class="meter-footer-note" id="note-voc">Target: 18.0V &bull; Voc = 21.6V</div>
+        </div>
+
+        <!-- Metric 4: PV Current -->
+        <div class="meter-card card" id="meter-current">
+          <div class="meter-top">
+            <div class="meter-icon amp-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+              </svg>
+            </div>
+            <div class="meter-meta">
+              <span class="meter-name">PV Current (Ipv)</span>
+              <span class="meter-norm" id="norm-curr">ANN Norm: 0.936</span>
+            </div>
+          </div>
+          <div class="meter-val-row">
+            <span class="meter-num" id="readout-current">2.78</span>
+            <span class="meter-unit">A</span>
+          </div>
+          <div class="meter-progress-track">
+            <div class="meter-progress-bar bg-amp" id="bar-current" style="width: 95%;"></div>
+          </div>
+          <div class="meter-footer-note" id="note-isc">Target: 2.78A &bull; Isc = 2.92A</div>
+        </div>
+      </div>
+
+      <!-- Instantaneous Power Banner -->
+      <div class="power-banner card">
+        <div class="power-label-col">
+          <span class="sub-badge">GENERATED POWER</span>
+          <span class="power-formula">P = Vpv × Ipv (Target: 18V × 2.78A)</span>
+        </div>
+        <div class="power-val-col">
+          <span class="power-num" id="readout-power">50.04</span>
+          <span class="power-unit">Watts</span>
+        </div>
+        <div class="power-mpp-ref">
+          <span>Rated Peak (Pmpp):</span>
+          <strong id="readout-pmpp">50.04 W</strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- NEW SECTION: Boost Converter & Dual Load Stage (Phase 1 Resistor & Phase 2 6S Battery) -->
+    <section class="load-circuit-card card" id="load-circuit-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <div class="title-with-pill">
+            <h2 class="card-title">Boost Converter &amp; Load Stage</h2>
+            <span class="tag-notes-badge">From Project Notes</span>
+          </div>
+          <span class="card-hint">Impedance Matching: <span class="math-formula"><i>R</i><sub>in</sub> = <i>R</i><sub>load</sub> &times; (1 &minus; <i>D</i>)<sup>2</sup></span> &bull; Keeps Solar Panel Locked at <strong class="text-solar"><i>R</i><sub>in</sub> = 6.47 &Omega;</strong> (18.0V / 2.78A)</span>
+        </div>
+        
+        <!-- Phase 1 vs Phase 2 Mode Selector -->
+        <div class="load-tabs">
+          <button class="load-tab-btn active" id="tab-phase1" data-phase="resistor">
+            <span class="tab-icon">🎛️</span>
+            <span>Phase 1: Ceramic Resistor Load</span>
+          </button>
+          <button class="load-tab-btn" id="tab-phase2" data-phase="battery">
+            <span class="tab-icon">🔋</span>
+            <span>Phase 2: 6S Li-Ion Battery Pack</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="load-content-wrapper">
+        <!-- Interactive Circuit Schematic & Power Flow -->
+        <div class="circuit-schematic-col">
+          <div class="schematic-header">
+            <div class="schematic-title-group">
+              <span class="schematic-main-title">⚡ Boost Topology &bull; 10 kHz Switching Cycle</span>
+              <span class="tag-notes-mini">Notes Calibrated</span>
+            </div>
+            
+            <!-- Switching Phase Interactive Selector -->
+            <div class="cycle-mode-selector" id="cycle-mode-selector">
+              <button class="cycle-btn active" data-cycle="auto" id="btn-cycle-auto" title="Cycle automatically at real-time 10 kHz PWM rate">
+                <span>🔄 10 kHz Auto</span>
+              </button>
+              <button class="cycle-btn" data-cycle="on" id="btn-cycle-on" title="Phase 1: MOSFET ON - Energy storage in 678µH inductor, Diode blocked">
+                <span>⚡ Phase 1: MOSFET ON (Store)</span>
+              </button>
+              <button class="cycle-btn" data-cycle="off" id="btn-cycle-off" title="Phase 2: MOSFET OFF - Inductor discharges, Diode conducts, Boost voltage">
+                <span>⚡ Phase 2: MOSFET OFF (Boost)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="schematic-canvas-box">
+            <canvas id="circuit-canvas" width="560" height="175"></canvas>
+          </div>
+
+          <!-- Live Cycle Explanation Banner -->
+          <div class="cycle-explanation-banner" id="cycle-banner">
+            <span class="cycle-phase-tag" id="cycle-tag-badge">Phase 1 (MOSFET ON)</span>
+            <span class="cycle-phase-desc" id="cycle-detail-text">
+              Gate HIGH (1) &rarr; MOSFET conducts to GND. Current: Panel (18V) &rarr; 678 &mu;H Inductor &rarr; MOSFET &rarr; GND. Magnetic field energy builds up. Diode is <strong>Reverse-Biased (Blocked)</strong>; 470 &mu;F capacitor discharges to power 15 &Omega; load.
+            </span>
+          </div>
+
+          <div class="schematic-equation-bar">
+            <span><i>R</i><sub>in</sub> = <i>R</i><sub>load</sub> &times; (1 &minus; <i>D</i>)<sup>2</sup></span>
+            <span>&bull;</span>
+            <span id="schematic-eq-calc">15.0 &Omega; &times; (1 &minus; 0.343)<sup>2</sup> = <strong>6.47 &Omega;</strong></span>
+            <span>&bull;</span>
+            <span id="schematic-state-tag" class="text-green">Locked at 18.0V (50W)</span>
+          </div>
+
+          <!-- Hardware Components Specs Grid Directly from Notes -->
+          <div class="hardware-specs-row">
+            <div class="spec-tile">
+              <div class="spec-head"><span class="spec-icon">⚡</span> <span class="spec-name">Input Cap (<i>C</i><sub>in</sub>)</span></div>
+              <div class="spec-val">1000 &mu;F</div>
+              <div class="spec-desc">Stabilizes DC rail &amp; filters 10 kHz switching noise</div>
+            </div>
+            <div class="spec-tile">
+              <div class="spec-head"><span class="spec-icon">🌀</span> <span class="spec-name">Inductor (<i>L</i>)</span></div>
+              <div class="spec-val">678 &mu;H</div>
+              <div class="spec-desc">Primary magnetic storage; resists current drop</div>
+            </div>
+            <div class="spec-tile">
+              <div class="spec-head"><span class="spec-icon">🔲</span> <span class="spec-name">MOSFET Switch</span></div>
+              <div class="spec-val">10 kHz PWM</div>
+              <div class="spec-desc">Gate (g) receives PWM signal from MPPT controller</div>
+            </div>
+            <div class="spec-tile">
+              <div class="spec-head"><span class="spec-icon">🔺</span> <span class="spec-name">Blocking Diode</span></div>
+              <div class="spec-val">Schottky</div>
+              <div class="spec-desc">Low forward drop; reverse-biased during Phase 1</div>
+            </div>
+            <div class="spec-tile">
+              <div class="spec-head"><span class="spec-icon">🔋</span> <span class="spec-name">Output Cap (<i>C</i><sub>out</sub>)</span></div>
+              <div class="spec-val">470 &mu;F</div>
+              <div class="spec-desc">Smooths pulsating boost voltage to steady DC supply</div>
+            </div>
+            <div class="spec-tile">
+              <div class="spec-head"><span class="spec-icon">🎛️</span> <span class="spec-name">Static Load</span></div>
+              <div class="spec-val">15 &Omega; Ceramic</div>
+              <div class="spec-desc">Baseline load for bench PCB testing before battery</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Load Control & Metrics Column -->
+        <div class="load-controls-col">
+          <!-- Phase 1: Resistor Controls (Active by default) -->
+          <div class="load-panel-view" id="view-resistor-controls">
+            <div class="panel-view-header">
+              <h4>Phase 1: Static Load Resistors (Bench Testing)</h4>
+              <span class="view-note">Prevents battery hazard during PCB verification</span>
+            </div>
+
+            <!-- Resistor Presets -->
+            <div class="resistor-preset-row">
+              <button class="res-btn active" id="btn-res-15" data-res="15">
+                <span class="res-val">15 &Omega;</span>
+                <span class="res-sub">STC Baseline (<i>D</i> = 0.343)</span>
+              </button>
+              <button class="res-btn" id="btn-res-30" data-res="30">
+                <span class="res-val">30 &Omega;</span>
+                <span class="res-sub">Double Load (<i>D</i> = 0.536)</span>
+              </button>
+              <button class="res-step-test-btn" id="btn-simulate-step" title="Simulate load step from 15Ω to 30Ω as described in notes">
+                <span class="icon">⚡</span>
+                <span>Test Step: 15&Omega; ➔ 30&Omega;</span>
+              </button>
+            </div>
+
+            <!-- Resistor Slider -->
+            <div class="resistor-slider-box">
+              <div class="slider-header">
+                <label for="slider-resistor">Custom Load Resistance (<i>R</i><sub>load</sub>)</label>
+                <strong class="slider-val" id="val-resistor">15.0 &Omega;</strong>
+              </div>
+              <input type="range" id="slider-resistor" min="10" max="50" value="15" step="0.5">
+              <div class="slider-ticks">
+                <span>10 &Omega;</span>
+                <span>15 &Omega; (Benchmark)</span>
+                <span>30 &Omega; (Double)</span>
+                <span>50 &Omega;</span>
+              </div>
+            </div>
+
+            <!-- Dynamic Impedance Math Comparison Box -->
+            <div class="impedance-math-box" id="impedance-math-box">
+              <div class="math-row">
+                <span class="math-label">Target Input Impedance (<i>R</i><sub>mpp</sub>):</span>
+                <strong class="math-val">18.0V / 2.78A = <span class="text-solar">6.47 &Omega;</span></strong>
+              </div>
+              <div class="math-row">
+                <span class="math-label">Effective Input Resistance (<i>R</i><sub>in</sub>):</span>
+                <strong class="math-val text-green" id="readout-rin">6.47 &Omega;</strong>
+              </div>
+              <div class="math-explanation" id="math-explanation-text">
+                &bull; At <i>R</i><sub>load</sub> = 15.0 &Omega;, setting <i>D</i> = 0.343 gives <i>R</i><sub>in</sub> = 15 &times; (1 &minus; 0.343)<sup>2</sup> = <strong>6.47 &Omega;</strong>, locking panel at 18.0V and 2.78A.
+              </div>
+            </div>
+          </div>
+
+          <!-- Phase 2: 6S Battery Controls (Hidden initially) -->
+          <div class="load-panel-view hidden" id="view-battery-controls">
+            <div class="panel-view-header">
+              <h4>Phase 2: 6S Lithium-Ion Battery Pack</h4>
+              <span class="view-note">Depleted 19-21V &bull; Nominal 22.2V &bull; Full 25.2V</span>
+            </div>
+
+            <!-- Battery Pack Visual Meter -->
+            <div class="battery-meter-card">
+              <div class="bat-left">
+                <div class="battery-icon-wrap">
+                  <div class="battery-cell-body">
+                    <div class="battery-level-bar" id="bat-level-fill" style="width: 50%;"></div>
+                  </div>
+                  <div class="battery-cap"></div>
+                </div>
+                <div class="bat-readout-col">
+                  <span class="bat-voltage-num" id="readout-vbat">22.20 V</span>
+                  <span class="bat-status-lbl" id="readout-bat-status">Nominal (6 × 3.7V)</span>
+                </div>
+              </div>
+              <div class="bat-right">
+                <div class="bat-stat-item">
+                  <span class="lbl">Effective Resistance (<i>R</i><sub>eff</sub>):</span>
+                  <strong id="readout-bat-reff">18.5 &Omega;</strong>
+                </div>
+                <div class="bat-stat-item">
+                  <span class="lbl">BMS Status:</span>
+                  <strong class="text-green" id="readout-bms">CHARGING (ACTIVE)</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Battery State of Charge (SoC) Slider -->
+            <div class="soc-slider-box">
+              <div class="slider-header">
+                <label for="slider-battery-soc">Battery State of Charge (SoC %)</label>
+                <strong class="slider-val" id="val-battery-soc">50% (22.2V)</strong>
+              </div>
+              <input type="range" id="slider-battery-soc" min="0" max="100" value="50" step="1">
+              <div class="slider-ticks">
+                <span>0% (Depleted 19.5V, <i>R</i><sub>eff</sub>=10&Omega;)</span>
+                <span>50% (Nominal 22.2V)</span>
+                <span>100% (Full 25.2V, <i>R</i><sub>eff</sub>=50.4&Omega;)</span>
+              </div>
+            </div>
+
+            <!-- Battery MPPT Dynamic Note -->
+            <div class="battery-math-note">
+              <span>Dynamic Boost Duty Formula:</span>
+              <code><i>D</i> = 1 &minus; (<i>V</i><sub>in</sub> / <i>V</i><sub>bat</sub>) = 1 &minus; (18.0V / <span id="vbat-formula-val">22.2V</span>) = <span id="dbat-formula-val">0.189</span></code>
+              <p>As the battery charges up to 25.2V, current tapers down to 0.5A and <i>R</i><sub>eff</sub> climbs from 10&Omega; to 50.4&Omega;. The MPPT continuously shifts <i>D</i> to keep the panel locked at 18.0V.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom Left: Real-time P-V & I-V Characteristic Curves -->
+    <section class="curves-card card" id="curves-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2 class="card-title">Three Zones of Solar Panel I-V Curve</h2>
+          <span class="card-hint">From Notes: 1) Short Circuit (<i>I</i><sub>sc</sub> = 2.92A) &bull; 2) MPP (18.0V, 2.78A, 50W) &bull; 3) Open Circuit (<i>V</i><sub>oc</sub> = 21.6V)</span>
+        </div>
+        <div class="curve-legend">
+          <span class="legend-item"><span class="legend-dot bg-solar"></span> P-V Curve (Watts)</span>
+          <span class="legend-item"><span class="legend-dot bg-cyan"></span> I-V Curve (Amps)</span>
+          <span class="legend-item"><span class="legend-dot bg-green"></span> Live Operating Point</span>
+          <span class="legend-item"><span class="legend-dot bg-red"></span> True MPP (6.47 &Omega;)</span>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="curves-canvas"></canvas>
+      </div>
+      <div class="chart-stats-footer">
+        <div class="stat-pill"><span class="lbl">True <i>V</i><sub>mpp</sub>:</span> <strong id="stat-vmpp">18.00 V</strong></div>
+        <div class="stat-pill"><span class="lbl">True <i>I</i><sub>mpp</sub>:</span> <strong id="stat-impp">2.78 A</strong></div>
+        <div class="stat-pill"><span class="lbl">Peak Power:</span> <strong id="stat-pmpp">50.04 W</strong></div>
+        <div class="stat-pill"><span class="lbl">Characteristic <i>R</i><sub>mpp</sub>:</span> <strong id="stat-rmpp" class="text-green">6.47 &Omega;</strong></div>
+      </div>
+    </section>
+
+    <!-- Bottom Center: Rolling Telemetry History Oscilloscope -->
+    <section class="oscilloscope-card card" id="oscilloscope-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2 class="card-title">Transient Response Oscilloscope</h2>
+          <span class="card-hint">Observe load step changes (15&Omega; &rarr; 30&Omega;) and cloud shadow transients</span>
+        </div>
+        <div class="curve-legend">
+          <span class="legend-item"><span class="legend-dot bg-solar"></span> Irradiance</span>
+          <span class="legend-item"><span class="legend-dot bg-green"></span> Power (Watts)</span>
+          <span class="legend-item"><span class="legend-dot bg-cyan"></span> Boost Duty (<i>D</i>)</span>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="oscilloscope-canvas"></canvas>
+      </div>
+      <div class="chart-stats-footer">
+        <div class="stat-pill"><span class="lbl">Sampling:</span> <strong>60 Hz Realtime</strong></div>
+        <div class="stat-pill"><span class="lbl">Step Response:</span> <strong id="stat-response-time" class="text-cyan">&lt; 0.1 ms (ANN)</strong></div>
+        <div class="stat-pill"><span class="lbl">Tracking:</span> <strong id="stat-oscillations" class="text-green">Locked at 18.0V</strong></div>
+      </div>
+    </section>
+
+    <!-- Bottom Right: Neural Network Architecture Visualizer -->
+    <section class="ann-card card" id="ann-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2 class="card-title">4-16-8-1 ANN Architecture</h2>
+          <span class="card-hint">Inputs: (<i>G, T, V</i><sub>pv</sub>, <i>I</i><sub>pv</sub>) &rarr; Predicts Optimal Boost Duty (<i>D</i>)</span>
+        </div>
+        <div class="ann-status-tag">
+          <span class="pulse-dot"></span>
+          <span>Feedforward Active</span>
+        </div>
+      </div>
+      <div class="ann-vis-container">
+        <canvas id="ann-canvas"></canvas>
+      </div>
+      <div class="ann-summary-footer">
+        <div class="layer-pill"><span>Inputs:</span> <strong>4 Sensors</strong></div>
+        <div class="layer-pill"><span>Hidden 1:</span> <strong>16 ReLU</strong></div>
+        <div class="layer-pill"><span>Hidden 2:</span> <strong>8 ReLU</strong></div>
+        <div class="layer-pill"><span>Output:</span> <strong>1 Linear (<i>D</i>)</strong></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Project Notes Reference Drawer -->
+  <div class="info-drawer card" id="info-drawer">
+    <div class="drawer-header">
+      <div class="drawer-title">
+        <span class="info-icon">📖</span>
+        <h3>Project Engineering Notes Reference (From Your Hand-Written Documentation)</h3>
+      </div>
+      <button class="drawer-close" id="btn-toggle-info">Hide Guide</button>
+    </div>
+    <div class="drawer-content">
+      <div class="info-col">
+        <h4>☀️ 1. Solar Panel &amp; Photocurrent Specs</h4>
+        <p>&bull; <strong>Baseline STC:</strong> 1000 W/m<sup>2</sup>, 25&deg;C &rarr; 50W (<i>V</i><sub>mpp</sub> = 18.0V, <i>I</i><sub>mpp</sub> = 2.78A, <i>R</i><sub>mpp</sub> = 6.47 &Omega;).<br>
+        &bull; <strong>Short Circuit:</strong> <i>I</i><sub>sc</sub> = 2.92A &bull; <strong>Open Circuit:</strong> <i>V</i><sub>oc</sub> = 21.6V.<br>
+        &bull; <strong>Photocurrent:</strong> <i>I</i><sub>ph</sub> = [<i>I</i><sub>ph,ref</sub> + <i>K</i><sub>i</sub>(<i>T</i> &minus; <i>T</i><sub>ref</sub>)] &times; (<i>G</i> / <i>G</i><sub>ref</sub>).<br>
+        &bull; <i>I</i><sub>pv</sub> is directly proportional to Irradiance <i>G</i> (1000 W/m<sup>2</sup> &rarr; 2.78A, 500 W/m<sup>2</sup> &rarr; 1.39A).</p>
+      </div>
+
+      <div class="info-col">
+        <h4>🔧 2. Boost Hardware Components (From Notes)</h4>
+        <p>&bull; <strong>1000 &mu;F Input Cap:</strong> In parallel with panel to stabilize DC rail and filter 10 kHz switching noise.<br>
+        &bull; <strong>678 &mu;H Inductor:</strong> Primary magnetic energy storage element (<i>E<sub>L</sub></i> = &frac12;<i>LI</i><sup>2</sup>).<br>
+        &bull; <strong>Power MOSFET:</strong> Gate (g) receives 10 kHz PWM signal from MPPT algorithm.<br>
+        &bull; <strong>Schottky Diode:</strong> One-way valve with low forward voltage drop; prevents reverse flow.<br>
+        &bull; <strong>470 &mu;F Output Cap &amp; 15 &Omega; Load:</strong> Smooths pulsating boosted voltage into steady DC supply.</p>
+      </div>
+
+      <div class="info-col">
+        <h4>⚡ 3. The 2-Phase Switching Cycle (How it Boosts)</h4>
+        <p>&bull; <strong>Phase 1: MOSFET is ON (Energy Storage):</strong><br>
+        PWM gate pulse = HIGH &rarr; MOSFET closes to GND. Current path: Panel (18V) &rarr; Inductor (678 &mu;H) &rarr; MOSFET &rarr; GND. Inductor stores energy in magnetic field. <em>Diode is reverse-biased (blocked)</em>; 470 &mu;F capacitor discharges its own energy to supply 15 &Omega; load.<br>
+        &bull; <strong>Phase 2: MOSFET is OFF (Energy Transfer):</strong><br>
+        PWM gate pulse = LOW &rarr; MOSFET opens (GND disconnected). Inductor resists sudden current drop (<em>current drop ko resist karta hai</em>) &rarr; induced back-EMF adds on top of 18V (<em>Voltage &uarr;&uarr;&uarr; adds on to 18V &rArr; V &gt; 18V</em>). Diode turns ON (forward-biased) &rarr; current flows to output, recharging 470 &mu;F cap &amp; supplying 15 &Omega; load simultaneously.</p>
+      </div>
+
+      <div class="info-col">
+        <h4>🔋 4. Dual Load Stages &amp; Impedance Matching</h4>
+        <p>&bull; <strong>Formula:</strong> <i>R</i><sub>in</sub> = <i>R</i><sub>load</sub> &times; (1 &minus; <i>D</i>)<sup>2</sup>.<br>
+        &bull; <strong>Phase 1 (15 &Omega; Resistor):</strong> Setting <i>D</i> = 0.343 locks <i>R</i><sub>in</sub> = 6.47 &Omega;.<br>
+        &bull; <strong>Step Test (15 &Omega; &rarr; 30 &Omega;):</strong> Rin spikes to 12.95 &Omega;, voltage shoots to 21.6V, current chokes to 1.67A. MPPT increases <i>D</i> &rarr; 0.536 to re-match 6.47 &Omega;.<br>
+        &bull; <strong>Phase 2 (6S Battery):</strong> 19.5V&ndash;25.2V. Dynamic <i>R</i><sub>eff</sub> = <i>V</i><sub>bat</sub> / <i>I</i><sub>bat</sub> (10 &Omega; depleted &rarr; 50.4 &Omega; full). <i>D</i> = 1 &minus; 18 / <i>V</i><sub>bat</sub> adjusts continuously.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="app-footer">
+    <p>SOLARIS MPPT Visualizer &bull; 50W Solar Panel &bull; Boost Converter (<i>R</i><sub>in</sub> = <i>R</i><sub>load</sub>(1 &minus; <i>D</i>)<sup>2</sup>) &bull; 6S Li-Ion Battery &bull; 4-16-8-1 ANN</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
